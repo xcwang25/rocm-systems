@@ -201,8 +201,12 @@ queue_controller_fini();
 // Best-effort drain of every intercepted queue. Returns false if any queue's drain timed out with
 // kernels still active, so callers that tear state down behind the drain can say so; callers that
 // only want a fence may ignore it.
-bool
-queue_controller_sync();
+uint64_t
+queue_controller_sync(const uint64_t timeout_ns = 0);
+
+// Peek at queues active async packets
+uint64_t
+queue_controller_peek_active_async_packets();
 
 void
 queue_controller_init(RocAttachDispatchTable* table);

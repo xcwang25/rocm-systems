@@ -51,7 +51,7 @@ namespace {
 // dispatch observable. They are renamed below rather than left at external linkage: ring.cc IS on
 // this link line, via tuning-general-test.cc.
 
-enum class ModelKind { None, Tree, Ring, Collnet, Nvls, Pat, Symk, Ce };
+enum class ModelKind { None, Tree, Ring, Collnet, Nvls, Pat, Symk, Ce, Pipeline };
 
 ModelKind g_lastModel = ModelKind::None;
 float g_modelTimeUs = 42.0f;
@@ -126,6 +126,30 @@ ncclResult_t ncclTuningSymkModelSim(struct ncclTuningInput_t* const, struct nccl
 ncclResult_t ncclTuningCeModelSim(struct ncclTuningInput_t* const, struct ncclTuningResult_t* const tuning,
                                   struct ncclTuningModelState*) {
   return RecordSim(ModelKind::Ce, tuning);
+}
+
+// platforms/rubin.h's map names the pipeline models; on AMD it is never selected (ncclTuningIsRubinPlatform).
+#define ncclTuningPipelineTreeModelInit CostModelPipelineTreeModelInit
+#define ncclTuningPipelineRingModelInit CostModelPipelineRingModelInit
+#define ncclTuningPipelineNvlsModelInit CostModelPipelineNvlsModelInit
+#define ncclTuningPipelineNvlsTreeModelInit CostModelPipelineNvlsTreeModelInit
+#define ncclTuningPipelineModelSim CostModelPipelineModelSim
+
+#define DEFINE_PIPELINE_INIT_FAKE(Name) \
+  ncclResult_t ncclTuningPipeline##Name##ModelInit(struct ncclComm*, int id, int[NCCL_NUM_FUNCTIONS], \
+                                                   struct ncclTuningModelState*) { \
+    return RecordInit(id); \
+  }
+
+DEFINE_PIPELINE_INIT_FAKE(Tree)
+DEFINE_PIPELINE_INIT_FAKE(Ring)
+DEFINE_PIPELINE_INIT_FAKE(Nvls)
+DEFINE_PIPELINE_INIT_FAKE(NvlsTree)
+#undef DEFINE_PIPELINE_INIT_FAKE
+
+ncclResult_t ncclTuningPipelineModelSim(struct ncclTuningInput_t* const, struct ncclTuningResult_t* const tuning,
+                                        struct ncclTuningModelState*) {
+  return RecordSim(ModelKind::Pipeline, tuning);
 }
 
 #include COST_MODEL_CC_PATH
@@ -508,6 +532,13 @@ TEST_F(CostModelMicrotest, NoModelMapRowCarriesAFinalizeYet) {
   }
   ASSERT_EQ(ncclSuccess, ncclTuningCostModelInit(comm_.get()));
   (void)ncclTuningCostModelFinalize(comm_.get());
+}
+
+// The pipeline fakes above only link: dispatch never reaches the Rubin map on AMD, whatever the compute capability.
+TEST_F(CostModelMicrotest, RubinPipelineModelsAreNeverSelectedOnAmd) {
+  for (int compCap : {90, 94, 95, 100, 120, 125}) {
+    EXPECT_FALSE(ncclTuningIsRubinPlatform(compCap)) << "compCap " << compCap;
+  }
 }
 
 }  // namespace
